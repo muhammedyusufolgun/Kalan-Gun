@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Yayın paketini doğrula
         run: |
-          echo '966af0f8c8e5536618a070ca5b3f3cf189e107fd5db1d02e6732f1b1f773c4c4  download/Kalan-Gun.apk' | sha256sum -c -
+          echo '4593aae4d442ab7ae41c0e019a6e4fa37d8e86c044f222e7628724cc57fa1607  download/Kalan-Gun.apk' | sha256sum -c -
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify download/Kalan-Gun.apk
       - name: Emülatör hızlandırmasını etkinleştir
         run: |

@@ -70,22 +70,19 @@ tap(find(lambda n:n.get("content-desc")=="Sonraki 30 gün"))
 tap(find(lambda n:n.get("content-desc")=="Önceki 30 gün"))
 select_day(DAY)
 tap(find(lambda n:n.get("text")=="Yeni etkinlik oluştur"))
-title_field=find(lambda n: n.get("class")=="android.widget.EditText" and
-    ("title" in (n.get("resource-id","")+" "+n.get("text","")).lower() or not n.get("text","")))
-tap(title_field)
+tap(find(lambda n:n.get("class")=="android.widget.EditText"))
 shell("input","text",TITLE)
-shell("input","keyevent","KEYCODE_BACK")
-def save_button(n):
-    value=(n.get("text","")+" "+n.get("content-desc","")+" "+n.get("resource-id","")).lower()
-    return n.get("package")!=APP and any(word in value for word in ("save","done","kaydet"))
-tap(find(save_button))
-time.sleep(1)
-if not any(n.get("package")==APP for n in tree()):
-    shell("input","keyevent","KEYCODE_BACK")
-if not any(n.get("text")=="Ekle" for n in tree()):
-    tap(find(lambda n:TITLE in n.get("text","")))
-saved=shell("content","query","--uri",base+"/events","--projection","title","--where","title='"+TITLE+"'")
-assert TITLE in saved,saved
+tap(find(lambda n:n.get("resource-id")=="android:id/button1"))
+for node in tree():
+    if "permission_allow_button" in node.get("resource-id",""):
+        tap(node)
+        break
+find(lambda n:n.get("text")=="Ekle")
+saved=shell("content","query","--uri",base+"/events","--projection","title:dtstart","--where","title='"+TITLE+"'")
+from zoneinfo import ZoneInfo
+zone=shell("getprop","persist.sys.timezone").strip() or "UTC"
+expected=int(datetime.datetime.combine(DAY,datetime.time(9),ZoneInfo(zone)).timestamp()*1000)
+assert saved.count(TITLE)==1 and str(expected) in saved,saved
 def control(label):
     return find(lambda n:n.get("text")==label)
 find(lambda n:n.get("text")=="Ekle")
