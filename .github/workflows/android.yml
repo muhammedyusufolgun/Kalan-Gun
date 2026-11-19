@@ -38,7 +38,7 @@ jobs:
           grep -q "^package: name='tr.olgun.kalangun'" package.txt
           if grep -q '^application-debuggable' package.txt; then exit 1; fi
           "$aapt" dump permissions download/Kalan-Gun.apk | grep "^uses-permission:" > permissions.txt
-          test "$(cat permissions.txt)" = "uses-permission: name='android.permission.READ_CALENDAR'"
+          printf "%s\n" "uses-permission: name='android.permission.READ_CALENDAR'" "uses-permission: name='android.permission.WRITE_CALENDAR'" | diff - <(sort permissions.txt)
           sha256sum download/Kalan-Gun.apk >> "$GITHUB_STEP_SUMMARY"
           python3 - <<'PY'
           import glob, hashlib, zipfile

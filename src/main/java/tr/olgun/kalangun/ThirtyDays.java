@@ -14,7 +14,6 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class ThirtyDays extends DialogFragment {
-    static final int CREATE_EVENT=48;
     static final Locale TR=Locale.forLanguageTag("tr");
     static final DateTimeFormatter DATE=DateTimeFormatter.ofPattern("d MMM",TR);
     long first, chosen;
@@ -40,28 +39,9 @@ public class ThirtyDays extends DialogFragment {
         load(); return dialog;
     }
     void createEvent(){
-        java.time.ZonedDateTime begin=LocalDate.ofEpochDay(chosen).atTime(9,0).atZone(ZoneId.systemDefault());
-        Intent editor=new Intent(Intent.ACTION_INSERT,android.provider.CalendarContract.Events.CONTENT_URI)
-            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME,begin.toInstant().toEpochMilli())
-            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME,begin.plusHours(1).toInstant().toEpochMilli());
-        try{startActivityForResult(editor,CREATE_EVENT);}
-        catch(ActivityNotFoundException ex){
-            Toast.makeText(getActivity(),"Etkinlik oluşturmak için telefonda bir takvim uygulaması etkin olmalı.",Toast.LENGTH_LONG).show();
-        }
-    }
-    @Override public void onActivityResult(int code,int result,Intent data){
-        super.onActivityResult(code,result,data);
-        if(code!=CREATE_EVENT)return;
-        if(result==Activity.RESULT_OK && data!=null && data.getData()!=null){
-            try{
-                CalendarEvent saved=CalendarEvent.picked(getActivity(),data);
-                Picker picker=(Picker)getActivity();
-                dismiss();picker.accept(saved);return;
-            }catch(java.io.IOException | RuntimeException ignored){
-                // Some calendar editors return a screen URI instead of a saved event URI.
-            }
-        }
-        load();
+        if(getFragmentManager().findFragmentByTag("create-event")!=null)return;
+        NewEvent form=new NewEvent();Bundle args=new Bundle();args.putLong("date",chosen);
+        form.setArguments(args);form.show(getFragmentManager(),"create-event");
     }
     void load(){
         final long from=first; final int version=++generation;
