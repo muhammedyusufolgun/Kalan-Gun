@@ -1,0 +1,25 @@
+name: Kalan Gün 1.6 ZIP indirmesi
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/zip-1.6.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ZIP oluştur ve herkese açık indirme adresini denetle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release download v1.6 --repo "$REPO" --pattern Kalan-Gun.apk
+          echo '4593aae4d442ab7ae41c0e019a6e4fa37d8e86c044f222e7628724cc57fa1607  Kalan-Gun.apk' | sha256sum -c -
+          zip -X Kalan-Gun-1.6.zip Kalan-Gun.apk
+          if ! gh release view v1.6 --repo "$REPO" --json assets --jq '.assets[].name' | grep -Fxq Kalan-Gun-1.6.zip; then
+            gh release upload v1.6 Kalan-Gun-1.6.zip --repo "$REPO"
+          fi
+          curl -fLsS --retry 4 --retry-all-errors "https://github.com/$REPO/releases/download/v1.6/Kalan-Gun-1.6.zip" -o indirilen.zip
+          unzip -p indirilen.zip Kalan-Gun.apk | cmp - Kalan-Gun.apk
