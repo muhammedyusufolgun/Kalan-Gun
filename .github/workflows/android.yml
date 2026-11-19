@@ -30,7 +30,8 @@ jobs:
           import glob, hashlib, zipfile
           def contents(path):
               with zipfile.ZipFile(path) as apk:
-                  return {n: hashlib.sha256(apk.read(n)).digest() for n in apk.namelist()}
+                  return {n: hashlib.sha256(apk.read(n)).digest() for n in apk.namelist()
+                          if n != 'META-INF/version-control-info.textproto'}
           assert contents(glob.glob('build/outputs/apk/release/*-unsigned.apk')[0]) == contents('download/Kalan-Gun.apk'), 'Yayın APK içeriği derlemeyle eşleşmiyor'
           PY
       - uses: actions/upload-artifact@v4
