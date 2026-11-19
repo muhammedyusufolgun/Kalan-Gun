@@ -1,0 +1,40 @@
+name: Kalan Gün 1.3 yayın testi
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-1.3.yml']
+  workflow_dispatch:
+jobs:
+  verify-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Yayın paketini doğrula
+        run: |
+          echo '8a3ad3afa9517392b444ce94ed5bf30ca5ba9789a1416836c4bd5d3d38308666  download/Kalan-Gun.apk' | sha256sum -c -
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify download/Kalan-Gun.apk
+      - name: Emülatör hızlandırmasını etkinleştir
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install -r download/Kalan-Gun.apk
+            python3 .github/scripts/event_smoke.py
+      - name: APK yayımla ve tekrar indirerek doğrula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view v1.3 >/dev/null 2>&1; then
+            gh release create v1.3 download/Kalan-Gun.apk --target "$GITHUB_SHA" --title 'Kalan Gün 1.3' --notes 'Telefon takviminden etkinlik ekleme, düzenlenebilir renkler ve boyutlar. Assets bölümünden Kalan-Gun.apk dosyasını indirin.'
+          fi
+          gh release download v1.3 --pattern Kalan-Gun.apk --dir "$RUNNER_TEMP"
+          cmp download/Kalan-Gun.apk "$RUNNER_TEMP/Kalan-Gun.apk"
