@@ -39,8 +39,18 @@ public class Picker extends Activity {
         setResult(RESULT_CANCELED);
         ScrollView scroll=new ScrollView(this); page=new LinearLayout(this); page.setOrientation(1);
         page.setGravity(Gravity.START); scroll.addView(page); scroll.setBackgroundColor(0xfff3f6fa);
-        scroll.setOnApplyWindowInsetsListener((v,in)->{v.setPadding(dp(12),dp(10)+in.getSystemWindowInsetTop(),dp(12),dp(12)+in.getSystemWindowInsetBottom());return in;});
-        setContentView(scroll);
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xfff3f6fa);
+        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        TextView signature=new TextView(this);
+        signature.setText("Muhammed Yusuf OLGUN");
+        signature.setTextSize(14);signature.setTextColor(0xff666666);
+        signature.setGravity(Gravity.CENTER);
+        signature.setPadding(0,dp(4),0,4*signature.getLineHeight());
+        root.addView(signature,new LinearLayout.LayoutParams(-1,-2));
+        root.setOnApplyWindowInsetsListener((v,in)->{v.setPadding(dp(12)+in.getSystemWindowInsetLeft(),dp(10)+in.getSystemWindowInsetTop(),dp(12)+in.getSystemWindowInsetRight(),in.getSystemWindowInsetBottom());return in;});
+        setContentView(root);
         for(int id:Counter.widgets(this)) Counter.linked(this,id);
         show();
         if(state!=null) return;
@@ -52,7 +62,7 @@ public class Picker extends Activity {
         }else if(widget==0 && Intent.ACTION_MAIN.equals(i.getAction())) calendar("");
         else if(widget!=0){
             String existing=Counter.linked(this,widget);
-            if(existing.isEmpty()) calendar(""); else if(!configuring)menu(existing);
+            if(existing.isEmpty()) calendar(""); else if(!configuring){editing=existing;show();}
         }
     }
     void calendar(String key){
@@ -89,7 +99,9 @@ public class Picker extends Activity {
     void finishConfiguration(){
         setResult(RESULT_OK,new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,widget));finish();
     }
-    Button button(String s,Runnable action){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setOnClickListener(v->action.run());return b;}
+    Button button(String s,Runnable action){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(Color.BLACK);
+        int tint="Takvim".equals(s)?0xffadede6:"Sil".equals(s)?0xffffb9b9:0xffffefb1;
+        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(tint));b.setOnClickListener(v->action.run());return b;}
     List<String> keys(){
         ArrayList<String> list=new ArrayList<>();
         for(String key:idx().getAll().keySet()) if(key.startsWith("item_"))list.add(key.substring(5));
@@ -98,7 +110,6 @@ public class Picker extends Activity {
     void show(){
         page.removeAllViews();
         Button calendarButton=button("Takvim",()->calendar(""));
-        calendarButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff40d9ce));
         calendarButton.setTextColor(Color.BLACK); calendarButton.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         page.addView(calendarButton);
         if(pending!=null){
@@ -106,7 +117,6 @@ public class Picker extends Activity {
             title.setTextColor(Color.BLACK);page.addView(title);
             Button add=button("Ekle",this::addSelected);add.setTextColor(Color.BLACK);
             add.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            add.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff70db84));
             page.addView(add);
         }
         for(String key:keys()) addCard(key);
@@ -123,26 +133,24 @@ public class Picker extends Activity {
         String title=e.getString("title","Etkinlik");image.setContentDescription(title);
         TextView caption=new TextView(this);caption.setText(title);caption.setGravity(Gravity.CENTER);
         caption.setTextColor(0xff14263d);caption.setTextSize(16);card.addView(caption,new LinearLayout.LayoutParams(dp(initial),-2));card.setPadding(0,dp(8),0,dp(8));
-        View.OnLongClickListener hold=v->{resizing=key;show();menu(key);return true;};
+        View.OnLongClickListener hold=v->{editing=key;resizing=key;show();return true;};
         for(View v:new View[]{image,caption}){
             v.setOnLongClickListener(hold); v.setOnClickListener(w->{
                 if(configuring){Counter.bind(this,widget,key);finishConfiguration();}
-                else{editing=key.equals(editing)?"":key;show();}
+                else{editing=key.equals(editing)?"":key;resizing="";show();}
             });
         }
+        if(!editing.equals(key))return;
         LinearLayout actions=new LinearLayout(this);actions.setPadding(dp(6),0,0,0);actions.setOrientation(1);
         row.addView(actions,new LinearLayout.LayoutParams(0,-2,1));
         actions.addView(button("Takvim",()->calendar(key)));
-        actions.addView(button("Düzenleme",()->{editing=editing.equals(key)?"":key;show();}));
-        if(editing.equals(key)){
+        actions.addView(button("Düzenleme",()->colors(key)));
             actions.addView(button("Sayı Rengi",()->palette(key,"number","Sayı Rengi")));
             actions.addView(button("Arkaplan Rengi",()->palette(key,"back","Arkaplan Rengi")));
             actions.addView(button("Çember Rengi",()->palette(key,"ring","Çember Rengi")));
             actions.addView(button("Boyutlandır",()->{resizing=resizing.equals(key)?"":key;show();}));
-            Button del=button("Sil",()->delete(key,false));del.setTextColor(-1);
-            del.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffba202b));actions.addView(del);
-        }
-        actions.addView(button("Ana ekrana ekle",()->{
+            actions.addView(button("Sil",()->delete(key,false)));
+        actions.addView(button("Ana Ekrana Ekle",()->{
             if(configuring){Counter.bind(this,widget,key);finishConfiguration();}else pin(key);
         }));
         if(resizing.equals(key)) for(int x:new int[]{-1,1})for(int y:new int[]{-1,1}) corner(frame,e,x,y);
@@ -173,17 +181,6 @@ public class Picker extends Activity {
                 }
             }
         });
-    }
-    void menu(String key){
-        SharedPreferences e=Counter.event(this,key);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(e.getString("title","Etkinlik")).create();
-        LinearLayout box=new LinearLayout(this);box.setPadding(dp(12),0,dp(12),dp(8));box.setOrientation(1);
-        box.addView(button("Takvim",()->{dialog.dismiss();calendar(key);}));
-        box.addView(button("Düzenleme",()->{dialog.dismiss();colors(key);}));
-        box.addView(button("Boyutlandır",()->{dialog.dismiss();resizing=key;show();}));
-        if(AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported()) box.addView(button("Ana ekrana ekle",()->{dialog.dismiss();pin(key);}));
-        Button del=button("Sil",()->{dialog.dismiss();delete(key,false);});del.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffba202b));del.setTextColor(-1);box.addView(del);
-        dialog.setView(box);dialog.show();
     }
     void colors(String key){
         String[] names={"Sayı Rengi","Arkaplan Rengi","Çember Rengi"};

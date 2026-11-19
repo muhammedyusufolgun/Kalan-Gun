@@ -31,7 +31,7 @@ public class ThirtyDays extends DialogFragment {
         body.setOrientation(1);body.setPadding(dp(10),dp(6),dp(10),dp(8));sc.addView(body);
         TextView heading=text("30 günlük takvim",20);
         heading.setPadding(dp(12),dp(12),dp(12),dp(12));
-        heading.setBackgroundColor(0xff40d9ce);
+        heading.setBackgroundColor(0xffadede6);
         heading.setTextColor(android.graphics.Color.BLACK);
         heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         AlertDialog dialog=new AlertDialog.Builder(getActivity()).setCustomTitle(heading).setView(sc)
