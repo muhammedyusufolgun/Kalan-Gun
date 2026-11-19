@@ -14,11 +14,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - run: gradle assembleDebug
-      - run: |
-          cp build/outputs/apk/debug/*.apk Kalan-Gun.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Kalan-Gun.apk
+      - run: gradle assembleRelease
+      - name: İmzaya hazır paketi kaydet
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-unsigned
+          path: build/outputs/apk/release/*-unsigned.apk
+          if-no-files-found: error
+      - name: Yayın imzasını ve paket içeriğini doğrula
+        if: ${{ hashFiles('download/Kalan-Gun.apk') != '' }}
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs download/Kalan-Gun.apk | tee signer.txt
+          grep -Fq 'certificate SHA-256 digest: 8490fcc71ca13d47e6a4996599327a4181b2dc7f233f1c5301ab4d22d372d23f' signer.txt
+          python3 - <<'PY'
+          import glob, hashlib, zipfile
+          def contents(path):
+              with zipfile.ZipFile(path) as apk:
+                  return {n: hashlib.sha256(apk.read(n)).digest() for n in apk.namelist()}
+          assert contents(glob.glob('build/outputs/apk/release/*-unsigned.apk')[0]) == contents('download/Kalan-Gun.apk'), 'Yayın APK içeriği derlemeyle eşleşmiyor'
+          PY
       - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles('download/Kalan-Gun.apk') != '' }}
         with:
           name: Kalan-Gun
-          path: Kalan-Gun.apk
+          path: download/Kalan-Gun.apk
