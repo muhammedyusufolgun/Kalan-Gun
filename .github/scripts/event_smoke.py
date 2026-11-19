@@ -17,7 +17,7 @@ def nodes():
 def find(label):
     for attempt in range(4):
         for n in nodes():
-            if n.get("text")==label or n.get("content-desc")==label:
+            if label in (n.get("resource-id"), n.get("text"), n.get("content-desc")):
                 return n
         time.sleep(1)
     raise RuntimeError("Ekranda bulunamadı: "+label)
@@ -38,10 +38,10 @@ touch("Boyutlandır")
 find("Boyutlandır")
 touch("Deneme", True)
 touch("Sil")
-touch("Devam")
-touch("Vazgeç")
+touch("android:id/button1")
+touch("android:id/button2")
 touch("Deneme", True)
 touch("Sil")
-touch("Devam")
-touch("Sil")
+touch("android:id/button1")
+touch("android:id/button1")
 assert all(n.get("text")!="Deneme" and n.get("content-desc")!="Deneme" for n in nodes())
