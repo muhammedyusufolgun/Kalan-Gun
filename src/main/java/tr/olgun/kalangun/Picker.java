@@ -17,6 +17,8 @@ public class Picker extends Activity {
     static final int PERMISSION=32;
     int widget; String target="", resizing="";
     LinearLayout page; boolean configuring;
+    CalendarEvent pending;
+    String editing="";
     final Handler timer=new Handler(Looper.getMainLooper());
     final Runnable redraw=new Runnable(){public void run(){show();timer.postDelayed(this,60000);}};
     int dp(float n){return Math.round(getResources().getDisplayMetrics().density*n);}
@@ -27,10 +29,16 @@ public class Picker extends Activity {
         Intent i=getIntent(); widget=i.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,0);
         if(!Counter.owns(this,widget)) widget=0;
         configuring=AppWidgetManager.ACTION_APPWIDGET_CONFIGURE.equals(i.getAction());
-        if(state!=null){target=state.getString("target","");resizing=state.getString("size","");}
+        if(state!=null){target=state.getString("target","");resizing=state.getString("size",""); editing=state.getString("editing","");
+            if(state.containsKey("draftTitle")){
+                pending=new CalendarEvent();
+                pending.title=state.getString("draftTitle"); pending.time=state.getLong("draftTime");
+                pending.all=state.getBoolean("draftAll");
+            }
+        }
         setResult(RESULT_CANCELED);
         ScrollView scroll=new ScrollView(this); page=new LinearLayout(this); page.setOrientation(1);
-        page.setGravity(Gravity.CENTER_HORIZONTAL); scroll.addView(page); scroll.setBackgroundColor(0xfff3f6fa);
+        page.setGravity(Gravity.START); scroll.addView(page); scroll.setBackgroundColor(0xfff3f6fa);
         scroll.setOnApplyWindowInsetsListener((v,in)->{v.setPadding(dp(12),dp(10)+in.getSystemWindowInsetTop(),dp(12),dp(12)+in.getSystemWindowInsetBottom());return in;});
         setContentView(scroll);
         for(int id:Counter.widgets(this)) Counter.linked(this,id);
@@ -48,7 +56,7 @@ public class Picker extends Activity {
         }
     }
     void calendar(String key){
-        target=key;
+        target=key; pending=null; show();
         if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED){
             requestPermissions(new String[]{Manifest.permission.READ_CALENDAR},PERMISSION);
             return;
@@ -64,17 +72,19 @@ public class Picker extends Activity {
             .setNegativeButton("Kapat",null).setPositiveButton("Ayarlar",(d,w)->startActivity(new Intent(
                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())))).show();
     }
-    void applyWidget(String key){
-        if(widget!=0){
-            Counter.bind(this,widget,key);
-            if(configuring)finishConfiguration();
-        } else pin(key);
+    void accept(CalendarEvent event){
+        pending=event;
+        show();
     }
-    void accept(CalendarEvent e){
-        boolean changing=!target.isEmpty();
-        String key=Counter.save(this,target,e.title,e.time,e.all);
-        target="";resizing="";show();
-        if(!changing || widget!=0)applyWidget(key);
+    void addSelected(){
+        if(pending==null)return;
+        CalendarEvent event=pending;
+        pending=null;
+        String key=Counter.save(this,target,event.title,event.time,event.all);
+        target="";resizing="";editing="";
+        if(widget!=0)Counter.bind(this,widget,key);
+        if(configuring){finishConfiguration();return;}
+        show();
     }
     void finishConfiguration(){
         setResult(RESULT_OK,new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,widget));finish();
@@ -88,27 +98,54 @@ public class Picker extends Activity {
     void show(){
         page.removeAllViews();
         page.addView(button("Takvim",()->calendar("")));
+        if(pending!=null){
+            TextView title=new TextView(this); title.setText(pending.title);title.setTextSize(17);
+            title.setTextColor(Color.BLACK);page.addView(title);
+            Button add=button("Ekle",this::addSelected);add.setTextColor(Color.BLACK);
+            add.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            add.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff70db84));
+            page.addView(add);
+        }
         for(String key:keys()) addCard(key);
     }
     void addCard(String key){
         SharedPreferences e=Counter.event(this,key);
-        LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setGravity(Gravity.CENTER);page.addView(card);
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+        page.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setGravity(Gravity.CENTER);
+        row.addView(card);
         FrameLayout frame=new FrameLayout(this);
         int initial=clamp(e.getInt("size",148)); card.addView(frame,new LinearLayout.LayoutParams(dp(initial),dp(initial)));
         ImageView image=new ImageView(this);image.setImageBitmap(Counter.image(e));frame.addView(image,new FrameLayout.LayoutParams(-1,-1));
         String title=e.getString("title","Etkinlik");image.setContentDescription(title);
         TextView caption=new TextView(this);caption.setText(title);caption.setGravity(Gravity.CENTER);
-        caption.setTextColor(0xff14263d);caption.setTextSize(16);card.addView(caption);card.setPadding(0,dp(8),0,dp(8));
+        caption.setTextColor(0xff14263d);caption.setTextSize(16);card.addView(caption,new LinearLayout.LayoutParams(dp(initial),-2));card.setPadding(0,dp(8),0,dp(8));
         View.OnLongClickListener hold=v->{resizing=key;show();menu(key);return true;};
         for(View v:new View[]{image,caption}){
             v.setOnLongClickListener(hold); v.setOnClickListener(w->{
-                applyWidget(key);
+                if(configuring){Counter.bind(this,widget,key);finishConfiguration();}
+                else{editing=key.equals(editing)?"":key;show();}
             });
         }
+        LinearLayout actions=new LinearLayout(this);actions.setPadding(dp(6),0,0,0);actions.setOrientation(1);
+        row.addView(actions,new LinearLayout.LayoutParams(0,-2,1));
+        actions.addView(button("Takvim",()->calendar(key)));
+        actions.addView(button("Düzenleme",()->{editing=editing.equals(key)?"":key;show();}));
+        if(editing.equals(key)){
+            actions.addView(button("Sayı Rengi",()->palette(key,"number","Sayı Rengi")));
+            actions.addView(button("Arkaplan Rengi",()->palette(key,"back","Arkaplan Rengi")));
+            actions.addView(button("Çember Rengi",()->palette(key,"ring","Çember Rengi")));
+            actions.addView(button("Boyutlandır",()->{resizing=resizing.equals(key)?"":key;show();}));
+            Button del=button("Sil",()->delete(key,false));del.setTextColor(-1);
+            del.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffba202b));actions.addView(del);
+        }
+        actions.addView(button("Ana ekrana ekle",()->{
+            if(configuring){Counter.bind(this,widget,key);finishConfiguration();}else pin(key);
+        }));
         if(resizing.equals(key)) for(int x:new int[]{-1,1})for(int y:new int[]{-1,1}) corner(frame,e,x,y);
     }
     int clamp(int size){
-        int max=Math.min(360,Math.round((getResources().getDisplayMetrics().widthPixels-dp(24))/getResources().getDisplayMetrics().density));
+        int max=Math.min(360,Math.round((getResources().getDisplayMetrics().widthPixels-dp(150))/getResources().getDisplayMetrics().density));
         return Math.max(68,Math.min(max,size));
     }
     void corner(FrameLayout f,SharedPreferences e,int x,int y){
@@ -152,7 +189,7 @@ public class Picker extends Activity {
     }
     void palette(String key,String prop,String name){
         String[] labels={"Beyaz","Siyah","Lacivert","Mavi","Turkuaz","Yeşil","Sarı","Turuncu","Kırmızı","Mor","Gri"};
-        int[] values={-1,0xff111111,Counter.BACK,0xff2474da,Counter.RING,0xff229955,0xffffce28,0xffff8728,0xffe22938,0xff8946ce,0xff778492};
+        int[] values={-1,Color.BLACK,0xff14263d,0xff2474da,0xff38d3ff,0xff229955,0xffffce28,0xffff8728,0xffe22938,0xff8946ce,0xff778492};
         new AlertDialog.Builder(this).setTitle(name).setItems(labels,(d,n)->{
             Counter.event(this,key).edit().putInt(prop,values[n]).apply();Counter.refresh(this);show();
         }).show();
@@ -179,6 +216,7 @@ public class Picker extends Activity {
     @Override protected void onResume(){super.onResume();redraw.run();}
     @Override protected void onPause(){timer.removeCallbacks(redraw);super.onPause();}
     @Override protected void onSaveInstanceState(Bundle b){
-        super.onSaveInstanceState(b);b.putString("target",target);b.putString("size",resizing);
+        super.onSaveInstanceState(b);b.putString("target",target);b.putString("size",resizing);b.putString("editing",editing);
+        if(pending!=null){b.putString("draftTitle",pending.title);b.putLong("draftTime",pending.time);b.putBoolean("draftAll",pending.all);}
     }
 }

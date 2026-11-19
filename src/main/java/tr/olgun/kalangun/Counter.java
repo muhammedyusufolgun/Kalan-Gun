@@ -11,7 +11,7 @@ import java.util.*;
 
 public class Counter extends AppWidgetProvider {
     static final String PIN = "tr.olgun.kalangun.PIN_EVENT";
-    static final int NUMBER = Color.WHITE, BACK = 0xff14263d, RING = 0xff38d3ff;
+    static final int NUMBER = Color.BLACK, BACK = Color.WHITE, RING = 0xffe22938;
     static SharedPreferences index(Context c) { return c.getSharedPreferences("page", 0); }
     static SharedPreferences event(Context c,String key) { return c.getSharedPreferences("item_"+key,0); }
     static int[] widgets(Context c) { return AppWidgetManager.getInstance(c).getAppWidgetIds(new ComponentName(c,Counter.class)); }
@@ -67,7 +67,7 @@ public class Counter extends AppWidgetProvider {
         canvas.drawArc(bounds,-90,360*fraction,false,p);
         String value=ready?Long.toString(left):"+";
         p.setStyle(Paint.Style.FILL); p.setColor(done?Color.WHITE:e.getInt("number",NUMBER));
-        p.setTextAlign(Paint.Align.CENTER); p.setTypeface(Typeface.create("sans-serif-medium",0)); p.setTextSize(142);
+        p.setTextAlign(Paint.Align.CENTER); p.setTypeface(Typeface.DEFAULT_BOLD); p.setTextSize(142);
         if(p.measureText(value)>255) p.setTextSize(142*255/p.measureText(value));
         canvas.drawText(value,180,180-(p.ascent()+p.descent())/2,p);
         return b;
