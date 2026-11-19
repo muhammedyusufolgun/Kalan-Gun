@@ -2,6 +2,7 @@ package tr.olgun.kalangun;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.appwidget.*;
 import android.content.*;
 import android.content.pm.PackageManager;
@@ -19,6 +20,7 @@ import java.util.concurrent.*;
 
 public class Picker extends Activity {
     private int widget, year;
+    private boolean choosingForPin;
     private LinearLayout page;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private int generation;
@@ -30,6 +32,7 @@ public class Picker extends Activity {
         super.onCreate(state);
         widget = getIntent().getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0);
         year = state == null ? LocalDate.now().getYear() : state.getInt("year");
+        choosingForPin = state != null && state.getBoolean("choosingForPin");
         setResult(RESULT_CANCELED);
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
@@ -55,12 +58,13 @@ public class Picker extends Activity {
     void show() {
         int revision = ++generation;
         page.removeAllViews();
-        label(widget == 0 ? "Kalan Gün" : "Etkinlik seç", 28);
-        if (widget == 0) {
+        label(widget == 0 && !choosingForPin ? "Kalan Gün" : "Etkinlik seç", 28);
+        if (widget == 0 && !choosingForPin) {
             label("Ana ekrana bir sayaç ekleyin. Her sayaç için ayrı bir takvim etkinliği seçebilirsiniz.", 17);
             AppWidgetManager m = AppWidgetManager.getInstance(this);
             if (m.isRequestPinAppWidgetSupported()) button(page, "Ana ekrana widget ekle", () -> {
-                m.requestPinAppWidget(new ComponentName(this, Counter.class), null, null);
+                choosingForPin = true;
+                show();
             });
             label("Ana ekranda boş bir yere basılı tutup Widget’lar › Kalan Gün yolunu da kullanabilirsiniz. Etkinliği değiştirmek için çarka dokunun.", 16);
             return;
@@ -124,9 +128,24 @@ public class Picker extends Activity {
         }
     }
     void select(Entry e) {
-        Counter.prefs(this, widget).edit().putString("title", e.title).putLong("begin", e.begin)
-            .putBoolean("all", e.all).putLong("start", LocalDate.now().toEpochDay()).apply();
-        Counter.draw(this, widget);
+        if (choosingForPin) {
+            Intent savedEvent = new Intent(this, Counter.class).setAction(Counter.PINNED)
+                .setData(Uri.parse("kalangun://pin/" + UUID.randomUUID()))
+                .putExtra("title", e.title).putExtra("begin", e.begin).putExtra("all", e.all);
+            int flags = PendingIntent.FLAG_ONE_SHOT;
+            if (android.os.Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
+            PendingIntent callback = PendingIntent.getBroadcast(this, 0, savedEvent, flags);
+            boolean accepted = AppWidgetManager.getInstance(this).requestPinAppWidget(
+                new ComponentName(this, Counter.class), null, callback);
+            if (!accepted) {
+                callback.cancel();
+                Toast.makeText(this, "Ana ekrandaki Widget’lar menüsünden Kalan Gün’ü ekleyin.", Toast.LENGTH_LONG).show();
+            }
+            choosingForPin = false;
+            show();
+            return;
+        }
+        Counter.save(this, widget, e.title, e.begin, e.all);
         setResult(RESULT_OK, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widget));
         finish();
     }
@@ -134,6 +153,6 @@ public class Picker extends Activity {
         super.onRequestPermissionsResult(code, p, results); show();
     }
     @Override public void onResume() { super.onResume(); if (page != null) show(); }
-    @Override public void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); b.putInt("year", year); }
+    @Override public void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); b.putInt("year", year); b.putBoolean("choosingForPin", choosingForPin); }
     @Override public void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
 }

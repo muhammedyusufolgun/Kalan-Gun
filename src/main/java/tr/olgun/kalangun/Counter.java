@@ -11,6 +11,12 @@ import android.widget.RemoteViews;
 import java.time.*;
 
 public class Counter extends AppWidgetProvider {
+    static final String PINNED = "tr.olgun.kalangun.PINNED";
+    static void save(Context c, int id, String title, long begin, boolean allDay) {
+        prefs(c, id).edit().putString("title", title).putLong("begin", begin)
+            .putBoolean("all", allDay).putLong("start", LocalDate.now().toEpochDay()).apply();
+        draw(c, id);
+    }
     static SharedPreferences prefs(Context c, int id) {
         return c.getSharedPreferences("countdown_" + id, Context.MODE_PRIVATE);
     }
@@ -73,6 +79,17 @@ public class Counter extends AppWidgetProvider {
         for (int id : ids) c.deleteSharedPreferences("countdown_" + id);
     }
     @Override public void onReceive(Context c, Intent intent) {
+        if (PINNED.equals(intent.getAction())) {
+            int id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0);
+            for (int owned : ids(c)) {
+                if (owned == id && intent.hasExtra("begin")) {
+                    save(c, id, intent.getStringExtra("title"), intent.getLongExtra("begin", 0),
+                        intent.getBooleanExtra("all", false));
+                    break;
+                }
+            }
+            return;
+        }
         super.onReceive(c, intent);
         String a = intent.getAction();
         if (Intent.ACTION_TIME_CHANGED.equals(a) || Intent.ACTION_TIMEZONE_CHANGED.equals(a) || Intent.ACTION_DATE_CHANGED.equals(a))
