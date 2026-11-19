@@ -1,0 +1,40 @@
+name: Kalan Gün 1.6 yayın testi
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-1.6.yml', '.github/scripts/create_event_smoke.py']
+  workflow_dispatch:
+jobs:
+  verify-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Yayın paketini doğrula
+        run: |
+          echo '966af0f8c8e5536618a070ca5b3f3cf189e107fd5db1d02e6732f1b1f773c4c4  download/Kalan-Gun.apk' | sha256sum -c -
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify download/Kalan-Gun.apk
+      - name: Emülatör hızlandırmasını etkinleştir
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install -r download/Kalan-Gun.apk
+            python3 .github/scripts/create_event_smoke.py
+      - name: APK yayımla ve tekrar indirerek doğrula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view v1.6 >/dev/null 2>&1; then
+            gh release create v1.6 download/Kalan-Gun.apk --target "$GITHUB_SHA" --title 'Kalan Gün 1.6' --notes 'Seçtiğiniz günde yeni takvim etkinliği oluşturup geri sayım olarak ekleyebilirsiniz. Assets bölümünden Kalan-Gun.apk dosyasını indirin.'
+          fi
+          gh release download v1.6 --pattern Kalan-Gun.apk --dir "$RUNNER_TEMP"
+          cmp download/Kalan-Gun.apk "$RUNNER_TEMP/Kalan-Gun.apk"
