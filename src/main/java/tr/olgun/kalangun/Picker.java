@@ -97,7 +97,10 @@ public class Picker extends Activity {
     }
     void show(){
         page.removeAllViews();
-        page.addView(button("Takvim",()->calendar("")));
+        Button calendarButton=button("Takvim",()->calendar(""));
+        calendarButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff40d9ce));
+        calendarButton.setTextColor(Color.BLACK); calendarButton.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        page.addView(calendarButton);
         if(pending!=null){
             TextView title=new TextView(this); title.setText(pending.title);title.setTextSize(17);
             title.setTextColor(Color.BLACK);page.addView(title);

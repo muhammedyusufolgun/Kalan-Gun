@@ -14,6 +14,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class ThirtyDays extends DialogFragment {
+    static final int CREATE_EVENT=48;
     static final Locale TR=Locale.forLanguageTag("tr");
     static final DateTimeFormatter DATE=DateTimeFormatter.ofPattern("d MMM",TR);
     long first, chosen;
@@ -29,9 +30,38 @@ public class ThirtyDays extends DialogFragment {
         reader=Executors.newSingleThreadExecutor();
         ScrollView sc=new ScrollView(getActivity());body=new LinearLayout(getActivity());
         body.setOrientation(1);body.setPadding(dp(10),dp(6),dp(10),dp(8));sc.addView(body);
-        AlertDialog dialog=new AlertDialog.Builder(getActivity()).setTitle("30 günlük takvim").setView(sc)
+        TextView heading=text("30 günlük takvim",20);
+        heading.setPadding(dp(12),dp(12),dp(12),dp(12));
+        heading.setBackgroundColor(0xff40d9ce);
+        heading.setTextColor(android.graphics.Color.BLACK);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        AlertDialog dialog=new AlertDialog.Builder(getActivity()).setCustomTitle(heading).setView(sc)
             .setNegativeButton("Kapat",null).create();
         load(); return dialog;
+    }
+    void createEvent(){
+        java.time.ZonedDateTime begin=LocalDate.ofEpochDay(chosen).atTime(9,0).atZone(ZoneId.systemDefault());
+        Intent editor=new Intent(Intent.ACTION_INSERT,android.provider.CalendarContract.Events.CONTENT_URI)
+            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME,begin.toInstant().toEpochMilli())
+            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME,begin.plusHours(1).toInstant().toEpochMilli());
+        try{startActivityForResult(editor,CREATE_EVENT);}
+        catch(ActivityNotFoundException ex){
+            Toast.makeText(getActivity(),"Etkinlik oluşturmak için telefonda bir takvim uygulaması etkin olmalı.",Toast.LENGTH_LONG).show();
+        }
+    }
+    @Override public void onActivityResult(int code,int result,Intent data){
+        super.onActivityResult(code,result,data);
+        if(code!=CREATE_EVENT)return;
+        if(result==Activity.RESULT_OK && data!=null && data.getData()!=null){
+            try{
+                CalendarEvent saved=CalendarEvent.picked(getActivity(),data);
+                Picker picker=(Picker)getActivity();
+                dismiss();picker.accept(saved);return;
+            }catch(java.io.IOException | RuntimeException ignored){
+                // Some calendar editors return a screen URI instead of a saved event URI.
+            }
+        }
+        load();
     }
     void load(){
         final long from=first; final int version=++generation;
@@ -85,6 +115,8 @@ public class ThirtyDays extends DialogFragment {
             cell.setOnClickListener(v->{chosen=day;render();});
         }
         body.addView(text(DATE.format(LocalDate.ofEpochDay(chosen)),16));
+        Button create=new Button(getActivity());create.setAllCaps(false);create.setText("Yeni etkinlik oluştur");
+        create.setOnClickListener(v->createEvent());body.addView(create);
         List<CalendarEvent> items=events.get(chosen);
         if(status!=null || items==null){body.addView(text(status!=null?status:"Bu gün için etkinlik yok.",15));return;}
         for(CalendarEvent e:items){
