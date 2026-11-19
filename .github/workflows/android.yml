@@ -15,6 +15,13 @@ jobs:
         with:
           gradle-version: '8.11.1'
       - run: gradle clean testReleaseUnitTest assembleRelease
+      - name: Yerel yayın imzası için SDK aracını hazırla
+        if: startsWith(github.ref, 'refs/heads/release/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-apksigner
+          path: /usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar
+          if-no-files-found: error
       - name: İmzaya hazır paketi kaydet
         uses: actions/upload-artifact@v4
         with:

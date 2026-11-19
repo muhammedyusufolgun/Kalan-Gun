@@ -14,9 +14,9 @@ import android.widget.*;
 import java.util.*;
 
 public class Picker extends Activity {
-    static final int PICK=30, VIEW=31, PERMISSION=32;
+    static final int PERMISSION=32;
     int widget; String target="", resizing="";
-    LinearLayout page; Intent waiting; boolean configuring;
+    LinearLayout page; boolean configuring;
     final Handler timer=new Handler(Looper.getMainLooper());
     final Runnable redraw=new Runnable(){public void run(){show();timer.postDelayed(this,60000);}};
     int dp(float n){return Math.round(getResources().getDisplayMetrics().density*n);}
@@ -27,7 +27,7 @@ public class Picker extends Activity {
         Intent i=getIntent(); widget=i.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,0);
         if(!Counter.owns(this,widget)) widget=0;
         configuring=AppWidgetManager.ACTION_APPWIDGET_CONFIGURE.equals(i.getAction());
-        if(state!=null){target=state.getString("target","");resizing=state.getString("size","");waiting=state.getParcelable("waiting");}
+        if(state!=null){target=state.getString("target","");resizing=state.getString("size","");}
         setResult(RESULT_CANCELED);
         ScrollView scroll=new ScrollView(this); page=new LinearLayout(this); page.setOrientation(1);
         page.setGravity(Gravity.CENTER_HORIZONTAL); scroll.addView(page); scroll.setBackgroundColor(0xfff3f6fa);
@@ -39,61 +39,42 @@ public class Picker extends Activity {
         if(Intent.ACTION_SEND.equals(i.getAction())){
             try {
                 CalendarEvent e=CalendarEvent.shared(this,i);
-                if(idx().getLong("pendingUntil",0)>System.currentTimeMillis()){
-                    target=idx().getString("pendingTarget","");
-                    widget=idx().getInt("pendingWidget",0);
-                    if(!Counter.owns(this,widget)) widget=0;
-                    if(!target.isEmpty() && !Counter.event(this,target).contains("begin")) target="";
-                }
-                clearPending(); accept(e);
+                accept(e);
             } catch(Exception ex){notice("Etkinlik okunamadı. Takvimde Paylaş menüsünden iCalendar (.ics) dosyasını seçin.");}
         }else if(widget==0 && Intent.ACTION_MAIN.equals(i.getAction())) calendar("");
-        else if(widget!=0 && !configuring && !Counter.linked(this,widget).isEmpty()) menu(Counter.linked(this,widget));
+        else if(widget!=0){
+            String existing=Counter.linked(this,widget);
+            if(existing.isEmpty()) calendar(""); else if(!configuring)menu(existing);
+        }
     }
-    void clearPending(){idx().edit().remove("pendingUntil").remove("pendingTarget").remove("pendingWidget").apply();}
     void calendar(String key){
-        clearPending();target=key;
-        Intent pick=new Intent(Intent.ACTION_PICK,CalendarContract.Events.CONTENT_URI);
-        try { startActivityForResult(pick,PICK); return; } catch(ActivityNotFoundException ignored){}
-        idx().edit().putString("pendingTarget",key).putInt("pendingWidget",widget)
-            .putLong("pendingUntil",System.currentTimeMillis()+30*60000L).apply();
-        notice("Etkinliği açın ve Paylaş → Takvim dosyası (.ics) → Kalan Gün seçin.");
-        Intent view=new Intent(Intent.ACTION_VIEW,CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(String.valueOf(System.currentTimeMillis())).build());
-        try { startActivityForResult(view,VIEW); }
-        catch(ActivityNotFoundException ex){
-            try{startActivityForResult(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN,Intent.CATEGORY_APP_CALENDAR),VIEW);}
-            catch(ActivityNotFoundException missing){clearPending();notice("Telefonda takvim uygulaması bulunamadı.");}
+        target=key;
+        if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.READ_CALENDAR},PERMISSION);
+            return;
         }
-    }
-    @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
-        if(request==VIEW){
-            clearPending();
-            if(configuring && widget!=0 && !Counter.linked(this,widget).isEmpty()) finishConfiguration();
-        }
-        if(request==PICK && result==RESULT_OK && data!=null){
-            waiting=data; readPicked();
-        }
-    }
-    void readPicked(){
-        try {CalendarEvent e=CalendarEvent.picked(this,waiting);waiting=null;accept(e);}
-        catch(SecurityException ex){
-            if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED)
-                requestPermissions(new String[]{Manifest.permission.READ_CALENDAR},PERMISSION);
-            else {waiting=null;notice("Takvim etkinliğini .ics dosyası olarak Kalan Gün ile paylaşın.");}
-        }catch(Exception ex){waiting=null;notice("Etkinlik okunamadı. Takvimden .ics dosyası olarak paylaşın.");}
+        if(getFragmentManager().findFragmentByTag("days")==null)
+            new ThirtyDays().show(getFragmentManager(),"days");
     }
     @Override public void onRequestPermissionsResult(int code,String[] names,int[] results){
         super.onRequestPermissionsResult(code,names,results);
-        if(code!=PERMISSION || waiting==null)return;
-        if(results.length>0 && results[0]==PackageManager.PERMISSION_GRANTED)readPicked();
-        else {waiting=null;notice("Takvimden .ics dosyası paylaşarak etkinlik ekleyebilirsiniz.");}
+        if(code!=PERMISSION)return;
+        if(results.length>0 && results[0]==PackageManager.PERMISSION_GRANTED)calendar(target);
+        else new AlertDialog.Builder(this).setMessage("30 günlük görünüm için takvim okuma izni gerekiyor.")
+            .setNegativeButton("Kapat",null).setPositiveButton("Ayarlar",(d,w)->startActivity(new Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())))).show();
+    }
+    void applyWidget(String key){
+        if(widget!=0){
+            Counter.bind(this,widget,key);
+            if(configuring)finishConfiguration();
+        } else pin(key);
     }
     void accept(CalendarEvent e){
+        boolean changing=!target.isEmpty();
         String key=Counter.save(this,target,e.title,e.time,e.all);
-        if(widget!=0)Counter.bind(this,widget,key);
         target="";resizing="";show();
-        if(configuring) finishConfiguration();
+        if(!changing || widget!=0)applyWidget(key);
     }
     void finishConfiguration(){
         setResult(RESULT_OK,new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,widget));finish();
@@ -121,8 +102,7 @@ public class Picker extends Activity {
         View.OnLongClickListener hold=v->{resizing=key;show();menu(key);return true;};
         for(View v:new View[]{image,caption}){
             v.setOnLongClickListener(hold); v.setOnClickListener(w->{
-                if(configuring && widget!=0){Counter.bind(this,widget,key);finishConfiguration();}
-                else{resizing=key;show();menu(key);}
+                applyWidget(key);
             });
         }
         if(resizing.equals(key)) for(int x:new int[]{-1,1})for(int y:new int[]{-1,1}) corner(frame,e,x,y);
@@ -185,6 +165,9 @@ public class Picker extends Activity {
             }).show();
     }
     void pin(String key){
+        if(!AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported()){
+            notice("Ana ekrana basılı tutup Widget’lar → Kalan Gün seçin ve etkinliğe dokunun.");return;
+        }
         Intent i=new Intent(this,Counter.class).setAction(Counter.PIN).setData(Uri.parse("kalangun://pin/"+UUID.randomUUID())).putExtra("key",key);
         int flags=PendingIntent.FLAG_ONE_SHOT;
         if(Build.VERSION.SDK_INT>=31)flags|=PendingIntent.FLAG_MUTABLE;
@@ -196,6 +179,6 @@ public class Picker extends Activity {
     @Override protected void onResume(){super.onResume();redraw.run();}
     @Override protected void onPause(){timer.removeCallbacks(redraw);super.onPause();}
     @Override protected void onSaveInstanceState(Bundle b){
-        super.onSaveInstanceState(b);b.putString("target",target);b.putString("size",resizing);b.putParcelable("waiting",waiting);
+        super.onSaveInstanceState(b);b.putString("target",target);b.putString("size",resizing);
     }
 }
