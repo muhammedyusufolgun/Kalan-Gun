@@ -1,0 +1,25 @@
+name: Kalan Gün 1.2 indirilebilir sürüm
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-1.2.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 481c0800a32f618f8be2eaec51a53d1324ed7d34
+      - name: İmzalı APK'yı doğrula ve yayımla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo '0420659870393456aa48475082727bdec448b469596ba40c0c850c26761a6de5  download/Kalan-Gun.apk' | sha256sum -c -
+          if ! gh release view v1.2 >/dev/null 2>&1; then
+            gh release create v1.2 download/Kalan-Gun.apk --target 481c0800a32f618f8be2eaec51a53d1324ed7d34 --title 'Kalan Gün 1.2' --notes 'Android kurulumu için aşağıdaki Kalan-Gun.apk dosyasını indirin.'
+          fi
+          gh release download v1.2 --pattern Kalan-Gun.apk --dir "$RUNNER_TEMP"
+          cmp download/Kalan-Gun.apk "$RUNNER_TEMP/Kalan-Gun.apk"
