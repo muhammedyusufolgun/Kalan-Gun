@@ -1,1 +1,9 @@
-<ImageView xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/ring" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/icon" android:scaleType="fitCenter" android:contentDescription="Kalan Gün"/>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+ android:id="@+id/panel" android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="vertical" android:gravity="center">
+ <ImageView android:id="@+id/ring" android:layout_width="match_parent" android:layout_height="0dp"
+ android:layout_weight="1" android:scaleType="fitCenter" android:src="@drawable/icon" android:contentDescription="Kalan gün"/>
+ <TextView android:id="@+id/caption" android:layout_width="wrap_content" android:layout_height="wrap_content"
+ android:gravity="center" android:maxLines="2" android:ellipsize="end" android:textSize="13sp"
+ android:textColor="#ffffff" android:shadowColor="#ff000000" android:shadowRadius="3" android:shadowDy="1"/>
+</LinearLayout>

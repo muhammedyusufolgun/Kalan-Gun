@@ -1,158 +1,201 @@
 package tr.olgun.kalangun;
 
 import android.Manifest;
-import android.app.Activity;
-import android.app.PendingIntent;
+import android.app.*;
 import android.appwidget.*;
 import android.content.*;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Bundle;
-import android.provider.CalendarContract.Instances;
+import android.os.*;
+import android.provider.CalendarContract;
 import android.view.*;
 import android.widget.*;
-import java.time.*;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.*;
 
 public class Picker extends Activity {
-    private int widget, year;
-    private boolean choosingForPin;
-    private LinearLayout page;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private int generation;
-    private static final Locale TR = Locale.forLanguageTag("tr");
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMMM yyyy", TR);
-    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", TR);
-
-    @Override public void onCreate(Bundle state) {
+    static final int PICK=30, VIEW=31, PERMISSION=32;
+    int widget; String target="", resizing="";
+    LinearLayout page; Intent waiting; boolean configuring;
+    final Handler timer=new Handler(Looper.getMainLooper());
+    final Runnable redraw=new Runnable(){public void run(){show();timer.postDelayed(this,60000);}};
+    int dp(float n){return Math.round(getResources().getDisplayMetrics().density*n);}
+    void notice(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
+    SharedPreferences idx(){return Counter.index(this);}
+    @Override public void onCreate(Bundle state){
         super.onCreate(state);
-        widget = getIntent().getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0);
-        year = state == null ? LocalDate.now().getYear() : state.getInt("year");
-        choosingForPin = state != null && state.getBoolean("choosingForPin");
+        Intent i=getIntent(); widget=i.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,0);
+        if(!Counter.owns(this,widget)) widget=0;
+        configuring=AppWidgetManager.ACTION_APPWIDGET_CONFIGURE.equals(i.getAction());
+        if(state!=null){target=state.getString("target","");resizing=state.getString("size","");waiting=state.getParcelable("waiting");}
         setResult(RESULT_CANCELED);
-        page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setBackgroundColor(0xfff1f6fa);
-        page.setOnApplyWindowInsetsListener((v, insets) -> {
-            v.setPadding(dp(18), dp(16) + insets.getSystemWindowInsetTop(), dp(18), dp(12) + insets.getSystemWindowInsetBottom());
-            return insets;
-        });
-        setContentView(page);
+        ScrollView scroll=new ScrollView(this); page=new LinearLayout(this); page.setOrientation(1);
+        page.setGravity(Gravity.CENTER_HORIZONTAL); scroll.addView(page); scroll.setBackgroundColor(0xfff3f6fa);
+        scroll.setOnApplyWindowInsetsListener((v,in)->{v.setPadding(dp(12),dp(10)+in.getSystemWindowInsetTop(),dp(12),dp(12)+in.getSystemWindowInsetBottom());return in;});
+        setContentView(scroll);
+        for(int id:Counter.widgets(this)) Counter.linked(this,id);
+        show();
+        if(state!=null) return;
+        if(Intent.ACTION_SEND.equals(i.getAction())){
+            try {
+                CalendarEvent e=CalendarEvent.shared(this,i);
+                if(idx().getLong("pendingUntil",0)>System.currentTimeMillis()){
+                    target=idx().getString("pendingTarget","");
+                    widget=idx().getInt("pendingWidget",0);
+                    if(!Counter.owns(this,widget)) widget=0;
+                    if(!target.isEmpty() && !Counter.event(this,target).contains("begin")) target="";
+                }
+                clearPending(); accept(e);
+            } catch(Exception ex){notice("Etkinlik okunamadı. Takvimde Paylaş menüsünden iCalendar (.ics) dosyasını seçin.");}
+        }else if(widget==0 && Intent.ACTION_MAIN.equals(i.getAction())) calendar("");
+        else if(widget!=0 && !configuring && !Counter.linked(this,widget).isEmpty()) menu(Counter.linked(this,widget));
     }
-    int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
-    TextView label(String text, int size) {
-        TextView v = new TextView(this);
-        v.setText(text); v.setTextSize(size); v.setTextColor(0xff14263d);
-        v.setPadding(0, dp(6), 0, dp(8)); page.addView(v);
-        return v;
+    void clearPending(){idx().edit().remove("pendingUntil").remove("pendingTarget").remove("pendingWidget").apply();}
+    void calendar(String key){
+        clearPending();target=key;
+        Intent pick=new Intent(Intent.ACTION_PICK,CalendarContract.Events.CONTENT_URI);
+        try { startActivityForResult(pick,PICK); return; } catch(ActivityNotFoundException ignored){}
+        idx().edit().putString("pendingTarget",key).putInt("pendingWidget",widget)
+            .putLong("pendingUntil",System.currentTimeMillis()+30*60000L).apply();
+        notice("Etkinliği açın ve Paylaş → Takvim dosyası (.ics) → Kalan Gün seçin.");
+        Intent view=new Intent(Intent.ACTION_VIEW,CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(String.valueOf(System.currentTimeMillis())).build());
+        try { startActivityForResult(view,VIEW); }
+        catch(ActivityNotFoundException ex){
+            try{startActivityForResult(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN,Intent.CATEGORY_APP_CALENDAR),VIEW);}
+            catch(ActivityNotFoundException missing){clearPending();notice("Telefonda takvim uygulaması bulunamadı.");}
+        }
     }
-    void button(LinearLayout row, String text, Runnable action) {
-        Button b = new Button(this);
-        b.setText(text); b.setAllCaps(false); row.addView(b);
-        b.setOnClickListener(v -> action.run());
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request==VIEW){
+            clearPending();
+            if(configuring && widget!=0 && !Counter.linked(this,widget).isEmpty()) finishConfiguration();
+        }
+        if(request==PICK && result==RESULT_OK && data!=null){
+            waiting=data; readPicked();
+        }
     }
-    void show() {
-        int revision = ++generation;
+    void readPicked(){
+        try {CalendarEvent e=CalendarEvent.picked(this,waiting);waiting=null;accept(e);}
+        catch(SecurityException ex){
+            if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED)
+                requestPermissions(new String[]{Manifest.permission.READ_CALENDAR},PERMISSION);
+            else {waiting=null;notice("Takvim etkinliğini .ics dosyası olarak Kalan Gün ile paylaşın.");}
+        }catch(Exception ex){waiting=null;notice("Etkinlik okunamadı. Takvimden .ics dosyası olarak paylaşın.");}
+    }
+    @Override public void onRequestPermissionsResult(int code,String[] names,int[] results){
+        super.onRequestPermissionsResult(code,names,results);
+        if(code!=PERMISSION || waiting==null)return;
+        if(results.length>0 && results[0]==PackageManager.PERMISSION_GRANTED)readPicked();
+        else {waiting=null;notice("Takvimden .ics dosyası paylaşarak etkinlik ekleyebilirsiniz.");}
+    }
+    void accept(CalendarEvent e){
+        String key=Counter.save(this,target,e.title,e.time,e.all);
+        if(widget!=0)Counter.bind(this,widget,key);
+        target="";resizing="";show();
+        if(configuring) finishConfiguration();
+    }
+    void finishConfiguration(){
+        setResult(RESULT_OK,new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,widget));finish();
+    }
+    Button button(String s,Runnable action){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setOnClickListener(v->action.run());return b;}
+    List<String> keys(){
+        ArrayList<String> list=new ArrayList<>();
+        for(String key:idx().getAll().keySet()) if(key.startsWith("item_"))list.add(key.substring(5));
+        list.sort(Comparator.comparingLong(k->Counter.event(this,k).getLong("begin",0)));return list;
+    }
+    void show(){
         page.removeAllViews();
-        label(widget == 0 && !choosingForPin ? "Kalan Gün" : "Etkinlik seç", 28);
-        if (widget == 0 && !choosingForPin) {
-            label("Ana ekrana bir sayaç ekleyin. Her sayaç için ayrı bir takvim etkinliği seçebilirsiniz.", 17);
-            AppWidgetManager m = AppWidgetManager.getInstance(this);
-            if (m.isRequestPinAppWidgetSupported()) button(page, "Ana ekrana widget ekle", () -> {
-                choosingForPin = true;
-                show();
+        page.addView(button("Takvim",()->calendar("")));
+        for(String key:keys()) addCard(key);
+    }
+    void addCard(String key){
+        SharedPreferences e=Counter.event(this,key);
+        LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setGravity(Gravity.CENTER);page.addView(card);
+        FrameLayout frame=new FrameLayout(this);
+        int initial=clamp(e.getInt("size",148)); card.addView(frame,new LinearLayout.LayoutParams(dp(initial),dp(initial)));
+        ImageView image=new ImageView(this);image.setImageBitmap(Counter.image(e));frame.addView(image,new FrameLayout.LayoutParams(-1,-1));
+        String title=e.getString("title","Etkinlik");image.setContentDescription(title);
+        TextView caption=new TextView(this);caption.setText(title);caption.setGravity(Gravity.CENTER);
+        caption.setTextColor(0xff14263d);caption.setTextSize(16);card.addView(caption);card.setPadding(0,dp(8),0,dp(8));
+        View.OnLongClickListener hold=v->{resizing=key;show();menu(key);return true;};
+        for(View v:new View[]{image,caption}){
+            v.setOnLongClickListener(hold); v.setOnClickListener(w->{
+                if(configuring && widget!=0){Counter.bind(this,widget,key);finishConfiguration();}
+                else{resizing=key;show();menu(key);}
             });
-            label("Ana ekranda boş bir yere basılı tutup Widget’lar › Kalan Gün yolunu da kullanabilirsiniz. Etkinliği değiştirmek için çarka dokunun.", 16);
-            return;
         }
-        if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
-            label("Etkinlikleri listelemek için takviminizi okuma izni gerekiyor.", 17);
-            button(page, "Takvim izni ver", () -> requestPermissions(new String[]{Manifest.permission.READ_CALENDAR}, 1));
-            button(page, "Uygulama ayarlarını aç", () -> startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))));
-            return;
-        }
-        LinearLayout nav = new LinearLayout(this);
-        nav.setGravity(Gravity.CENTER); page.addView(nav);
-        if (year > LocalDate.now().getYear()) button(nav, "‹", () -> { year--; show(); });
-        TextView y = new TextView(this); y.setText(String.valueOf(year)); y.setTextSize(21); nav.addView(y);
-        button(nav, "›", () -> { year++; show(); });
-        TextView status = label("Takvim okunuyor…", 16);
-        final int selectedYear = year;
-        worker.execute(() -> {
-            ArrayList<Entry> items = new ArrayList<>();
-            String error = null;
-            LocalDate today = LocalDate.now();
-            LocalDate first = LocalDate.of(selectedYear, 1, 1);
-            LocalDate last = first.plusYears(1);
-            LocalDate from = today.isAfter(first) ? today : first;
-            Uri.Builder uri = Instances.CONTENT_URI.buildUpon();
-            ContentUris.appendId(uri, from.minusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli());
-            ContentUris.appendId(uri, last.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli());
-            try (Cursor cursor = getContentResolver().query(uri.build(), new String[]{Instances.TITLE, Instances.BEGIN, Instances.ALL_DAY},
-                    Instances.VISIBLE + "=1", null, Instances.BEGIN + " ASC")) {
-                if (cursor == null) throw new IllegalStateException();
-                while (cursor.moveToNext()) {
-                    Entry e = new Entry(cursor.getString(0), cursor.getLong(1), cursor.getInt(2) != 0);
-                    LocalDate day = Counter.date(e.begin, e.all);
-                    if (!day.isBefore(from) && day.isBefore(last)) items.add(e);
+        if(resizing.equals(key)) for(int x:new int[]{-1,1})for(int y:new int[]{-1,1}) corner(frame,e,x,y);
+    }
+    int clamp(int size){
+        int max=Math.min(360,Math.round((getResources().getDisplayMetrics().widthPixels-dp(24))/getResources().getDisplayMetrics().density));
+        return Math.max(68,Math.min(max,size));
+    }
+    void corner(FrameLayout f,SharedPreferences e,int x,int y){
+        TextView grip=new TextView(this);grip.setGravity(Gravity.CENTER);grip.setTextColor(0xff075c91);
+        grip.setTextSize(21);grip.setText(x==y?"⤡":"⤢");grip.setContentDescription("Boyutlandır");
+        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(36),dp(36),(x<0?Gravity.LEFT:Gravity.RIGHT)|(y<0?Gravity.TOP:Gravity.BOTTOM));
+        f.addView(grip,lp);
+        grip.setOnTouchListener(new View.OnTouchListener(){
+            float sx,sy;int base,size;
+            public boolean onTouch(View v,android.view.MotionEvent m){
+                switch(m.getActionMasked()){
+                    case MotionEvent.ACTION_DOWN:
+                        f.getParent().requestDisallowInterceptTouchEvent(true);
+                        sx=m.getRawX();sy=m.getRawY();base=Math.round(f.getWidth()/getResources().getDisplayMetrics().density);size=base;return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx=x*(m.getRawX()-sx),dy=y*(m.getRawY()-sy);
+                        size=clamp(base+Math.round((Math.abs(dx)>Math.abs(dy)?dx:dy)/getResources().getDisplayMetrics().density));
+                        ViewGroup.LayoutParams params=f.getLayoutParams();params.width=params.height=dp(size);f.setLayoutParams(params);return true;
+                    case MotionEvent.ACTION_UP:case MotionEvent.ACTION_CANCEL:
+                        e.edit().putInt("size",size).apply(); f.getParent().requestDisallowInterceptTouchEvent(false);return true;
+                    default:return false;
                 }
-            } catch (RuntimeException ex) { error = "Takvim okunamadı. Takvim iznini kontrol edin."; }
-            final String problem = error;
-            runOnUiThread(() -> {
-                if (isDestroyed() || isFinishing() || revision != generation) return;
-                if (problem != null || items.isEmpty()) {
-                    status.setText(problem != null ? problem : "Bu yıl için yaklaşan etkinlik yok.");
-                    return;
-                }
-                page.removeView(status);
-                ListView list = new ListView(this);
-                list.setAdapter(new ArrayAdapter<Entry>(this, android.R.layout.simple_list_item_1, items));
-                page.addView(list);
-                list.setOnItemClickListener((parent, view, position, row) -> select(items.get(position)));
-            });
+            }
         });
     }
-    static class Entry {
-        final String title; final long begin; final boolean all;
-        Entry(String title, long begin, boolean all) {
-            this.title = title == null || title.trim().isEmpty() ? "Adsız etkinlik" : title;
-            this.begin = begin; this.all = all;
-        }
-        public String toString() {
-            return title + "\n" + DAY.format(Counter.date(begin, all)) + (all ? " · Tüm gün" :
-                " · " + CLOCK.format(Instant.ofEpochMilli(begin).atZone(ZoneId.systemDefault())));
+    void menu(String key){
+        SharedPreferences e=Counter.event(this,key);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(e.getString("title","Etkinlik")).create();
+        LinearLayout box=new LinearLayout(this);box.setPadding(dp(12),0,dp(12),dp(8));box.setOrientation(1);
+        box.addView(button("Takvim",()->{dialog.dismiss();calendar(key);}));
+        box.addView(button("Düzenleme",()->{dialog.dismiss();colors(key);}));
+        box.addView(button("Boyutlandır",()->{dialog.dismiss();resizing=key;show();}));
+        if(AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported()) box.addView(button("Ana ekrana ekle",()->{dialog.dismiss();pin(key);}));
+        Button del=button("Sil",()->{dialog.dismiss();delete(key,false);});del.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffba202b));del.setTextColor(-1);box.addView(del);
+        dialog.setView(box);dialog.show();
+    }
+    void colors(String key){
+        String[] names={"Sayı Rengi","Arkaplan Rengi","Çember Rengi"};
+        String[] props={"number","back","ring"};
+        new AlertDialog.Builder(this).setTitle("Düzenleme").setItems(names,(d,n)->palette(key,props[n],names[n])).show();
+    }
+    void palette(String key,String prop,String name){
+        String[] labels={"Beyaz","Siyah","Lacivert","Mavi","Turkuaz","Yeşil","Sarı","Turuncu","Kırmızı","Mor","Gri"};
+        int[] values={-1,0xff111111,Counter.BACK,0xff2474da,Counter.RING,0xff229955,0xffffce28,0xffff8728,0xffe22938,0xff8946ce,0xff778492};
+        new AlertDialog.Builder(this).setTitle(name).setItems(labels,(d,n)->{
+            Counter.event(this,key).edit().putInt(prop,values[n]).apply();Counter.refresh(this);show();
+        }).show();
+    }
+    void delete(String key,boolean confirmed){
+        new AlertDialog.Builder(this).setTitle(confirmed?"Silmeyi onayla":"Etkinliği sil")
+            .setMessage(confirmed?"Kalan Gün sayfasındaki bu sayaç silinsin mi?":Counter.event(this,key).getString("title","Etkinlik")+" silinsin mi?")
+            .setNegativeButton("Vazgeç",null).setPositiveButton(confirmed?"Sil":"Devam",(d,w)->{
+                if(confirmed){Counter.remove(this,key);resizing="";show();}else delete(key,true);
+            }).show();
+    }
+    void pin(String key){
+        Intent i=new Intent(this,Counter.class).setAction(Counter.PIN).setData(Uri.parse("kalangun://pin/"+UUID.randomUUID())).putExtra("key",key);
+        int flags=PendingIntent.FLAG_ONE_SHOT;
+        if(Build.VERSION.SDK_INT>=31)flags|=PendingIntent.FLAG_MUTABLE;
+        PendingIntent callback=PendingIntent.getBroadcast(this,0,i,flags);
+        if(!AppWidgetManager.getInstance(this).requestPinAppWidget(new ComponentName(this,Counter.class),null,callback)){
+            callback.cancel();notice("Ana ekranın Widget’lar menüsünden ekleyin.");
         }
     }
-    void select(Entry e) {
-        if (choosingForPin) {
-            Intent savedEvent = new Intent(this, Counter.class).setAction(Counter.PINNED)
-                .setData(Uri.parse("kalangun://pin/" + UUID.randomUUID()))
-                .putExtra("title", e.title).putExtra("begin", e.begin).putExtra("all", e.all);
-            int flags = PendingIntent.FLAG_ONE_SHOT;
-            if (android.os.Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
-            PendingIntent callback = PendingIntent.getBroadcast(this, 0, savedEvent, flags);
-            boolean accepted = AppWidgetManager.getInstance(this).requestPinAppWidget(
-                new ComponentName(this, Counter.class), null, callback);
-            if (!accepted) {
-                callback.cancel();
-                Toast.makeText(this, "Ana ekrandaki Widget’lar menüsünden Kalan Gün’ü ekleyin.", Toast.LENGTH_LONG).show();
-            }
-            choosingForPin = false;
-            show();
-            return;
-        }
-        Counter.save(this, widget, e.title, e.begin, e.all);
-        setResult(RESULT_OK, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widget));
-        finish();
+    @Override protected void onResume(){super.onResume();redraw.run();}
+    @Override protected void onPause(){timer.removeCallbacks(redraw);super.onPause();}
+    @Override protected void onSaveInstanceState(Bundle b){
+        super.onSaveInstanceState(b);b.putString("target",target);b.putString("size",resizing);b.putParcelable("waiting",waiting);
     }
-    @Override public void onRequestPermissionsResult(int code, String[] p, int[] results) {
-        super.onRequestPermissionsResult(code, p, results); show();
-    }
-    @Override public void onResume() { super.onResume(); if (page != null) show(); }
-    @Override public void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); b.putInt("year", year); b.putBoolean("choosingForPin", choosingForPin); }
-    @Override public void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
 }

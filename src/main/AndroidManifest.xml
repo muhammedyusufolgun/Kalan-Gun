@@ -4,6 +4,14 @@
   <activity android:name=".Picker" android:exported="true">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
    <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/></intent-filter>
+   <intent-filter>
+    <action android:name="android.intent.action.SEND"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+    <data android:mimeType="text/calendar"/>
+    <data android:mimeType="application/ics"/>
+    <data android:mimeType="text/x-vcalendar"/>
+    <data android:mimeType="application/icalendar"/>
+   </intent-filter>
   </activity>
   <receiver android:name=".Counter" android:exported="false">
    <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/><action android:name="android.intent.action.TIME_SET"/><action android:name="android.intent.action.TIMEZONE_CHANGED"/><action android:name="android.intent.action.DATE_CHANGED"/></intent-filter>
