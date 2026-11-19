@@ -15,10 +15,9 @@ import java.util.*;
 
 public class NewEvent extends DialogFragment {
     private EditText title;
-    private Spinner calendars;
+    private long calendarId;
     private CheckBox allDay;
     private Button time;
-    private final ArrayList<Long> ids=new ArrayList<>();
     private int hour,minute;
     private long date;
     @Override public Dialog onCreateDialog(Bundle state){
@@ -28,21 +27,14 @@ public class NewEvent extends DialogFragment {
         LinearLayout form=new LinearLayout(a);form.setOrientation(1);
         int pad=Math.round(16*getResources().getDisplayMetrics().density);form.setPadding(pad,0,pad,0);
         title=new EditText(a);title.setSingleLine();title.setHint("Etkinlik adı");form.addView(title);
-        calendars=new Spinner(a);calendars.setContentDescription("Kayıt takvimi");form.addView(calendars);
-        ArrayList<String> names=new ArrayList<>();
-        try(Cursor c=a.getContentResolver().query(Calendars.CONTENT_URI,
-                new String[]{Calendars._ID,Calendars.CALENDAR_DISPLAY_NAME},Calendars.VISIBLE+"=1 AND "+Calendars.CALENDAR_ACCESS_LEVEL+">=?",
-                new String[]{String.valueOf(Calendars.CAL_ACCESS_CONTRIBUTOR)},Calendars.CALENDAR_DISPLAY_NAME+" ASC")){
-            if(c!=null)while(c.moveToNext()){ids.add(c.getLong(0));names.add(c.getString(1));}
-        }catch(RuntimeException ex){ids.clear();names.clear();}
-        if(names.isEmpty())names.add("Yazılabilir takvim bulunamadı");
-        calendars.setAdapter(new ArrayAdapter<>(a,android.R.layout.simple_spinner_dropdown_item,names));
+        calendarId=getArguments().getLong("calendar",-1);
+        TextView calendarName=new TextView(a);calendarName.setText(getArguments().getString("calendarName"));form.addView(calendarName);
         allDay=new CheckBox(a);allDay.setText("Tüm gün");form.addView(allDay);
         time=new Button(a);form.addView(time);updateTime();
         time.setOnClickListener(v->new TimePickerDialog(a,(view,h,m)->{hour=h;minute=m;updateTime();},hour,minute,true).show());
         allDay.setOnCheckedChangeListener((b,checked)->time.setEnabled(!checked));
         if(state!=null){title.setText(state.getString("name"));allDay.setChecked(state.getBoolean("all"));
-            int pos=ids.indexOf(state.getLong("calendar",-1));if(pos>=0)calendars.setSelection(pos);}
+        }
         String day=DateTimeFormatter.ofPattern("d MMMM yyyy",Locale.forLanguageTag("tr")).format(LocalDate.ofEpochDay(date));
         return new AlertDialog.Builder(a).setTitle(day).setView(form).setPositiveButton("Takvime kaydet",null)
             .setNegativeButton("Vazgeç",null).create();
@@ -50,7 +42,7 @@ public class NewEvent extends DialogFragment {
     void updateTime(){time.setText(String.format(Locale.forLanguageTag("tr"),"Saat %02d:%02d",hour,minute));}
     @Override public void onStart(){
         super.onStart();Button save=((AlertDialog)getDialog()).getButton(AlertDialog.BUTTON_POSITIVE);
-        save.setEnabled(!ids.isEmpty());save.setOnClickListener(v->{
+        save.setEnabled(calendarId>=0);save.setOnClickListener(v->{
             if(title.getText().toString().trim().isEmpty()){title.setError("Etkinlik adını yazın.");return;}
             if(getActivity().checkSelfPermission(Manifest.permission.WRITE_CALENDAR)!=PackageManager.PERMISSION_GRANTED)
                 requestPermissions(new String[]{Manifest.permission.WRITE_CALENDAR},71);
@@ -67,11 +59,15 @@ public class NewEvent extends DialogFragment {
         boolean all=allDay.isChecked();ZoneId zone=all?ZoneOffset.UTC:ZoneId.systemDefault();LocalDate day=LocalDate.ofEpochDay(date);
         ZonedDateTime start=all?day.atStartOfDay(zone):day.atTime(hour,minute).atZone(zone);
         CalendarEvent e=new CalendarEvent();e.title=title.getText().toString().trim();e.time=start.toInstant().toEpochMilli();e.all=all;
-        ContentValues values=new ContentValues();values.put(Events.CALENDAR_ID,ids.get(calendars.getSelectedItemPosition()));
+        ContentValues values=new ContentValues();values.put(Events.CALENDAR_ID,calendarId);
         values.put(Events.TITLE,e.title);values.put(Events.DTSTART,e.time);
         values.put(Events.DTEND,(all?start.plusDays(1):start.plusHours(1)).toInstant().toEpochMilli());
         values.put(Events.ALL_DAY,all?1:0);values.put(Events.EVENT_TIMEZONE,all?"UTC":zone.getId());
         try{
+            ActiveCalendar current=ActiveCalendar.selected(getActivity(),ActiveCalendar.available(getActivity()));
+            if(current==null||current.id!=calendarId||!current.writable){
+                Toast.makeText(getActivity(),"Kayıt takvimi değişti. Takvimi yeniden açın.",Toast.LENGTH_LONG).show();return;
+            }
             if(getActivity().getContentResolver().insert(Events.CONTENT_URI,values)==null)throw new IllegalStateException();
         }catch(RuntimeException ex){Toast.makeText(getActivity(),"Etkinlik kaydedilemedi. Takvim iznini ve seçilen takvimi kontrol edin.",Toast.LENGTH_LONG).show();return;}
         Picker p=(Picker)getActivity();DialogFragment days=(DialogFragment)getFragmentManager().findFragmentByTag("days");
