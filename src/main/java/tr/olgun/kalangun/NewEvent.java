@@ -76,6 +76,6 @@ public class NewEvent extends DialogFragment {
     @Override public void onSaveInstanceState(Bundle b){
         super.onSaveInstanceState(b);b.putString("name",title.getText().toString());b.putBoolean("all",allDay.isChecked());
         b.putInt("hour",hour);b.putInt("minute",minute);
-        if(!ids.isEmpty())b.putLong("calendar",ids.get(calendars.getSelectedItemPosition()));
+
     }
 }
